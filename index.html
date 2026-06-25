@@ -215,7 +215,7 @@ let L, R, wheelR, centerR;
 function layout(){
   wheelR = Math.min(W,H) * 0.20;
   centerR = wheelR * 0.46;
-  const cy = H*0.66;
+  const cy = H*0.74;
   L = { x: W*0.26, y: cy };
   R = { x: W*0.74, y: cy };
 }
@@ -248,6 +248,9 @@ function drawWheel(cx,cy,labels,activeIdx,accent,opts){
   opts = opts||{};
   const n = labels.length, step = Math.PI*2/n, innerR = centerR;
   const pulse = 0.22 + 0.1*Math.sin(performance.now()/120);
+  // 휠 뒤 검정 반투명 배경 (가독성)
+  ctx.beginPath(); ctx.arc(cx,cy,wheelR*1.08,0,Math.PI*2);
+  ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fill();
   for(let i=0;i<n;i++){
     const a0 = -Math.PI/2 + i*step, a1 = a0 + step, mid = a0 + step/2;
     const on = (i===activeIdx);
