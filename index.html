@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>HandChord — 손으로 연주하는 코드 신스</title>
+<style>
+  :root{
+    --bg:#0a0a14; --neon:#00f0ff; --neon2:#ff2fb9; --gold:#ffd166;
+    --ink:#e8f6ff; --dim:#5a6b85;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;
+    -webkit-user-select:none;user-select:none}
+  #stage{position:fixed;inset:0}
+  /* 미러된 웹캠 배경 */
+  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+    transform:scaleX(-1);filter:saturate(.55) brightness(.42) contrast(1.05);
+    opacity:.9}
+  #vignette{position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(ellipse at center,transparent 35%,rgba(5,5,14,.82) 100%)}
+  #fx{position:absolute;inset:0;width:100%;height:100%}
+
+  /* HUD */
+  #hud{position:absolute;top:0;left:0;right:0;padding:18px 22px;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    pointer-events:none;z-index:5}
+  .brand{font-weight:800;letter-spacing:.5px;font-size:20px;
+    text-shadow:0 0 16px rgba(0,240,255,.6)}
+  .brand b{color:var(--neon)}
+  .brand .pink{color:var(--neon2)}
+  .now{font-variant-numeric:tabular-nums;text-align:right}
+  .now .chord{font-size:34px;font-weight:800;line-height:1;
+    text-shadow:0 0 22px rgba(255,209,102,.55);color:var(--gold);min-height:36px}
+  .now .label{font-size:12px;color:var(--dim);letter-spacing:2px;text-transform:uppercase;margin-top:6px}
+
+  /* 시작 / 권한 오버레이 */
+  #gate{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:22px;text-align:center;
+    background:radial-gradient(ellipse at center,#131326 0,#06060f 100%)}
+  #gate h1{font-size:clamp(28px,5vw,52px);font-weight:900;letter-spacing:1px;
+    background:linear-gradient(90deg,var(--neon),var(--neon2));-webkit-background-clip:text;
+    background-clip:text;color:transparent;text-shadow:0 0 40px rgba(0,240,255,.25)}
+  #gate p{max-width:560px;color:#b9c6e0;line-height:1.7;font-size:15px;padding:0 20px}
+  #gate .keys{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:4px}
+  #gate .keys span{font-size:13px;color:var(--dim);border:1px solid #283349;
+    padding:7px 13px;border-radius:999px;background:rgba(255,255,255,.02)}
+  #start{cursor:pointer;pointer-events:auto;font-size:18px;font-weight:800;
+    padding:16px 40px;border-radius:999px;border:0;color:#04111a;
+    background:linear-gradient(90deg,var(--neon),#7af9ff);
+    box-shadow:0 0 30px rgba(0,240,255,.5),0 8px 30px rgba(0,0,0,.4);
+    transition:transform .15s ease, box-shadow .15s ease}
+  #start:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 0 50px rgba(0,240,255,.75)}
+  #start:active{transform:translateY(0) scale(.99)}
+  #gate.loading #start{opacity:.5;pointer-events:none}
+  #status{font-size:13px;color:var(--dim);min-height:18px;letter-spacing:.5px}
+  .spinner{width:16px;height:16px;border:2px solid #2a3550;border-top-color:var(--neon);
+    border-radius:50%;display:inline-block;vertical-align:-3px;margin-right:8px;
+    animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #hint{position:absolute;bottom:16px;left:0;right:0;text-align:center;
+    font-size:12px;color:var(--dim);letter-spacing:1.5px;pointer-events:none;z-index:5}
+  .err{color:#ff6b6b !important}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="cam" autoplay playsinline muted></video>
+  <div id="vignette"></div>
+  <canvas id="fx"></canvas>
+
+  <div id="hud">
+    <div class="brand"><b>HAND</b><span class="pink">CHORD</span></div>
+    <div class="now">
+      <div class="chord" id="chordName">—</div>
+      <div class="label">now playing</div>
+    </div>
+  </div>
+  <div id="hint">왼손 = 루트(음) · 오른손 = 코드 종류 (가운데 = 기본) · 핀치 = 스트럼</div>
+
+  <div id="gate">
+    <h1>HANDCHORD</h1>
+    <p>웹캠 앞에서 <b>양손</b>을 움직여 코드를 연주하는 신스 악기입니다.<br>
+       왼쪽 휠에서 <b>루트 음</b>을, 오른쪽 휠에서 <b>코드 종류</b>를 손으로 가리키세요.
+       오른손을 가운데 두면 <b>기본(메이저)</b> 코드가 울립니다.</p>
+    <div class="keys">
+      <span>🎥 카메라 권한 필요</span><span>🔊 소리 켜기</span><span>🖐️ 양손 인식</span>
+    </div>
+    <button id="start">시작하기</button>
+    <div id="status"></div>
+  </div>
+</div>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+/* ───────────────────────── 음악 데이터 ───────────────────────── */
+const ROOTS = ["C","D","E","F","G","A","B"];
+const ROOT_SEMI = { C:0, D:2, E:4, F:5, G:7, A:9, B:11 };
+// 기준: C4 = 261.63Hz. 손맛 좋게 살짝 낮춰 C3 기반으로 연주.
+const BASE_FREQ = 130.81; // C3
+
+// 코드 종류 (가운데 = MAJ 기본). 표시명 / 인터벌(반음)
+const QUALITIES = [
+  { id:"min",  name:"m",    suffix:"m",     iv:[0,3,7] },
+  { id:"maj7", name:"M7",   suffix:"maj7",  iv:[0,4,7,11] },
+  { id:"m7",   name:"m7",   suffix:"m7",    iv:[0,3,7,10] },
+  { id:"7",    name:"7",    suffix:"7",     iv:[0,4,7,10] },
+  { id:"sus4", name:"sus4", suffix:"sus4",  iv:[0,5,7] },
+  { id:"sus2", name:"sus2", suffix:"sus2",  iv:[0,2,7] },
+  { id:"dim",  name:"dim",  suffix:"dim",   iv:[0,3,6] },
+  { id:"add9", name:"add9", suffix:"add9",  iv:[0,4,7,14] },
+];
+const MAJ = { id:"maj", name:"", suffix:"", iv:[0,4,7] }; // 가운데 기본
+
+function chordFreqs(rootSemi, intervals){
+  return intervals.map(iv => BASE_FREQ * Math.pow(2, (rootSemi + iv) / 12));
+}
+function chordLabel(root, q){ return root + (q.suffix || ""); }
+
+/* ───────────────────────── 오디오 엔진 (기계음 신스) ───────────────────────── */
+class SynthEngine {
+  constructor(){ this.ctx=null; this.ready=false; }
+  init(){
+    if(this.ready) return;
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    this.ctx = ctx;
+
+    // 마스터 체인: filter -> drive -> master -> dest
+    this.master = ctx.createGain(); this.master.gain.value = 0.0;
+    this.filter = ctx.createBiquadFilter();
+    this.filter.type = "lowpass";
+    this.filter.frequency.value = 2000;
+    this.filter.Q.value = 6;
+    // 살짝의 코러스/공간감
+    this.delay = ctx.createDelay(); this.delay.delayTime.value = 0.16;
+    this.fb = ctx.createGain(); this.fb.gain.value = 0.28;
+    this.wet = ctx.createGain(); this.wet.gain.value = 0.18;
+
+    this.filter.connect(this.master);
+    this.master.connect(ctx.destination);
+    this.master.connect(this.delay);
+    this.delay.connect(this.fb); this.fb.connect(this.delay);
+    this.delay.connect(this.wet); this.wet.connect(ctx.destination);
+
+    // 보이스 풀 (각 보이스 = saw + square 디튠)
+    this.voices = [];
+    for(let i=0;i<6;i++){
+      const g = ctx.createGain(); g.gain.value = 0;
+      g.connect(this.filter);
+      const o1 = ctx.createOscillator(); o1.type="sawtooth";
+      const o2 = ctx.createOscillator(); o2.type="square"; o2.detune.value = 7;
+      const og2 = ctx.createGain(); og2.gain.value = 0.5;
+      o1.connect(g); o2.connect(og2); og2.connect(g);
+      o1.start(); o2.start();
+      this.voices.push({ g, o1, o2, active:false });
+    }
+    this.ready = true;
+  }
+  setChord(freqs){
+    if(!this.ready) return;
+    const t = this.ctx.currentTime;
+    const per = 0.42 / Math.max(1, freqs.length);
+    this.voices.forEach((v,i)=>{
+      if(i < freqs.length){
+        v.o1.frequency.setTargetAtTime(freqs[i], t, 0.035);
+        v.o2.frequency.setTargetAtTime(freqs[i], t, 0.035);
+        v.g.gain.setTargetAtTime(per, t, 0.05);
+        v.active = true;
+      } else {
+        v.g.gain.setTargetAtTime(0, t, 0.05);
+        v.active = false;
+      }
+    });
+    this.master.gain.setTargetAtTime(0.5, t, 0.08);
+  }
+  strum(){ // 액센트: 필터 살짝 열고 게인 펌프
+    if(!this.ready) return;
+    const t = this.ctx.currentTime;
+    this.filter.frequency.cancelScheduledValues(t);
+    this.filter.frequency.setValueAtTime(4200, t);
+    this.filter.frequency.setTargetAtTime(2000, t+0.02, 0.25);
+    this.master.gain.setValueAtTime(0.7, t);
+    this.master.gain.setTargetAtTime(0.5, t+0.04, 0.2);
+  }
+  silence(){
+    if(!this.ready) return;
+    const t = this.ctx.currentTime;
+    this.master.gain.setTargetAtTime(0.0, t, 0.12);
+  }
+  resume(){ if(this.ctx && this.ctx.state==="suspended") this.ctx.resume(); }
+}
+const synth = new SynthEngine();
+
+/* ───────────────────────── 화면 / 캔버스 ───────────────────────── */
+const video = document.getElementById("cam");
+const fx = document.getElementById("fx");
+const ctx = fx.getContext("2d");
+const chordNameEl = document.getElementById("chordName");
+let W=0, H=0, DPR=Math.min(2, window.devicePixelRatio||1);
+
+function resize(){
+  W = window.innerWidth; H = window.innerHeight;
+  fx.width = W*DPR; fx.height = H*DPR;
+  fx.style.width = W+"px"; fx.style.height = H+"px";
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  layout();
+}
+window.addEventListener("resize", resize);
+
+// 휠 기하 구조
+let L, R, wheelR, centerR;
+function layout(){
+  wheelR = Math.min(W,H) * 0.20;
+  centerR = wheelR * 0.46;
+  const cy = H*0.56;
+  L = { x: W*0.26, y: cy };
+  R = { x: W*0.74, y: cy };
+}
+
+/* ───────────────────────── 히트 테스트 ───────────────────────── */
+// 왼쪽 휠: 7개 루트 섹터. 위(-90도)에서 시작, 시계방향.
+function hitRoot(px,py){
+  const dx=px-L.x, dy=py-L.y, d=Math.hypot(dx,dy);
+  if(d > wheelR*1.15) return -1;
+  let a = Math.atan2(dy,dx) + Math.PI/2; // 위가 0
+  a = (a + Math.PI*2) % (Math.PI*2);
+  const seg = Math.floor(a / (Math.PI*2/ROOTS.length));
+  return Math.min(ROOTS.length-1, Math.max(0, seg));
+}
+// 오른쪽 휠: 가운데 = MAJ, 바깥 = 8 종류
+function hitQuality(px,py){
+  const dx=px-R.x, dy=py-R.y, d=Math.hypot(dx,dy);
+  if(d <= centerR) return { center:true, idx:-1 };
+  if(d > wheelR*1.15) return null;
+  let a = Math.atan2(dy,dx) + Math.PI/2;
+  a = (a + Math.PI*2) % (Math.PI*2);
+  const idx = Math.floor(a / (Math.PI*2/QUALITIES.length));
+  return { center:false, idx: Math.min(QUALITIES.length-1, Math.max(0, idx)) };
+}
+
+/* ───────────────────────── 그리기 ───────────────────────── */
+function polar(cx,cy,r,ang){ return [cx + r*Math.cos(ang), cy + r*Math.sin(ang)]; }
+
+function drawWheel(cx,cy,labels,activeIdx,accent,centerLabel,centerActive){
+  const n = labels.length;
+  const step = Math.PI*2/n;
+  for(let i=0;i<n;i++){
+    const a0 = -Math.PI/2 + i*step;
+    const a1 = a0 + step;
+    const mid = a0 + step/2;
+    const on = (i===activeIdx);
+    ctx.beginPath();
+    ctx.moveTo(...polar(cx,cy,centerLabel!=null?centerR:wheelR*0.14,a0));
+    ctx.arc(cx,cy,wheelR,a0,a1);
+    ctx.lineTo(...polar(cx,cy,centerLabel!=null?centerR:wheelR*0.14,a1));
+    ctx.arc(cx,cy,centerLabel!=null?centerR:wheelR*0.14,a1,a0,true);
+    ctx.closePath();
+    ctx.fillStyle = on
+      ? `rgba(0,240,255,${0.30+0.12*Math.sin(performance.now()/120)})`
+      : "rgba(120,160,210,0.05)";
+    ctx.fill();
+    ctx.lineWidth = on?2.5:1;
+    ctx.strokeStyle = on ? accent : "rgba(140,180,230,0.18)";
+    if(on){ ctx.shadowColor=accent; ctx.shadowBlur=22; }
+    ctx.stroke();
+    ctx.shadowBlur=0;
+    // 라벨
+    const [lx,ly] = polar(cx,cy, (wheelR + (centerLabel!=null?centerR:wheelR*0.14))/2, mid);
+    ctx.fillStyle = on ? "#fff" : "rgba(200,220,245,0.7)";
+    ctx.font = `${on?700:500} ${Math.round(wheelR*0.14)}px -apple-system,sans-serif`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    if(on){ ctx.shadowColor=accent; ctx.shadowBlur=14; }
+    ctx.fillText(labels[i], lx, ly);
+    ctx.shadowBlur=0;
+  }
+  // 가운데 원 (오른쪽 휠 전용)
+  if(centerLabel!=null){
+    ctx.beginPath(); ctx.arc(cx,cy,centerR,0,Math.PI*2);
+    ctx.fillStyle = centerActive
+      ? `rgba(255,209,102,${0.32+0.12*Math.sin(performance.now()/120)})`
+      : "rgba(255,209,102,0.07)";
+    ctx.fill();
+    ctx.lineWidth = centerActive?3:1.5;
+    ctx.strokeStyle = centerActive ? "#ffd166" : "rgba(255,209,102,0.4)";
+    if(centerActive){ ctx.shadowColor="#ffd166"; ctx.shadowBlur=26; }
+    ctx.stroke(); ctx.shadowBlur=0;
+    ctx.fillStyle = centerActive?"#fff":"rgba(255,225,170,0.85)";
+    ctx.font = `800 ${Math.round(centerR*0.42)}px -apple-system,sans-serif`;
+    ctx.fillText(centerLabel, cx, cy-centerR*0.08);
+    ctx.font = `600 ${Math.round(centerR*0.2)}px -apple-system,sans-serif`;
+    ctx.fillStyle = centerActive?"rgba(255,255,255,.7)":"rgba(255,225,170,0.45)";
+    ctx.fillText("기본", cx, cy+centerR*0.42);
+  }
+}
+
+function drawHand(landmarks, color){
+  // 미러 좌표로 변환해서 손 마디 점/선
+  const pts = landmarks.map(p => [ (1-p.x)*W, p.y*H ]);
+  const CONN = [[0,5],[5,8],[0,9],[9,12],[0,17],[5,9],[9,13],[13,17],[0,1],[1,4]];
+  ctx.lineWidth=2; ctx.strokeStyle=color; ctx.globalAlpha=.45;
+  CONN.forEach(([a,b])=>{ ctx.beginPath(); ctx.moveTo(...pts[a]); ctx.lineTo(...pts[b]); ctx.stroke(); });
+  ctx.globalAlpha=1;
+  for(const [x,y] of pts){ ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fillStyle=color; ctx.fill(); }
+}
+function drawPointer(x,y,color){
+  ctx.beginPath(); ctx.arc(x,y,16,0,Math.PI*2);
+  ctx.fillStyle=color; ctx.shadowColor=color; ctx.shadowBlur=26; ctx.globalAlpha=.9; ctx.fill();
+  ctx.globalAlpha=1; ctx.shadowBlur=0;
+  ctx.beginPath(); ctx.arc(x,y,7,0,Math.PI*2); ctx.fillStyle="#fff"; ctx.fill();
+}
+
+/* ───────────────────────── 손 추적 ───────────────────────── */
+let handLandmarker=null;
+const statusEl=document.getElementById("status");
+const gate=document.getElementById("gate");
+
+async function setupModel(){
+  statusEl.innerHTML = `<span class="spinner"></span>인식 모델 불러오는 중…`;
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  handLandmarker = await HandLandmarker.createFromOptions(vision,{
+    baseOptions:{
+      modelAssetPath:"https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      delegate:"GPU"
+    },
+    runningMode:"VIDEO", numHands:2
+  });
+}
+async function setupCamera(){
+  statusEl.innerHTML = `<span class="spinner"></span>카메라 여는 중…`;
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video:{ width:{ideal:1280}, height:{ideal:720}, facingMode:"user" }, audio:false });
+  video.srcObject = stream;
+  await new Promise(res => video.onloadedmetadata = () => { video.play(); res(); });
+}
+
+// 손 위치 = 손바닥 중심 추정(0,5,9,13,17 평균), 핀치 = thumb(4)-index(8) 거리
+function handMetrics(lm){
+  const ids=[0,5,9,13,17]; let sx=0,sy=0;
+  for(const i of ids){ sx+=lm[i].x; sy+=lm[i].y; }
+  const cx=sx/ids.length, cy=sy/ids.length;
+  const px=(1-cx)*W, py=cy*H;
+  const pinch = Math.hypot(lm[4].x-lm[8].x, lm[4].y-lm[8].y) < 0.06;
+  // 검지 끝을 포인터로 (더 직관적)
+  const ix=(1-lm[8].x)*W, iy=lm[8].y*H;
+  return { px:ix, py:iy, palmX:px, palmY:py, pinch };
+}
+
+/* ───────────────────────── 메인 루프 ───────────────────────── */
+let lastVideoTime=-1;
+let curKey="";           // 현재 연주중인 코드 키
+let prevPinch=false;
+
+function loop(){
+  ctx.clearRect(0,0,W,H);
+
+  let hands=[];
+  if(handLandmarker && video.readyState>=2){
+    const now = performance.now();
+    if(video.currentTime !== lastVideoTime){
+      lastVideoTime = video.currentTime;
+      const res = handLandmarker.detectForVideo(video, now);
+      if(res && res.landmarks) hands = res.landmarks;
+    }
+  }
+
+  // 손을 좌/우 휠에 배정: 화면 x로 구분
+  let leftHand=null, rightHand=null;
+  const m = hands.map(handMetrics);
+  if(m.length===1){
+    (m[0].px < W/2 ? (leftHand=m[0]) : (rightHand=m[0]));
+  } else if(m.length>=2){
+    const sorted=[...m].sort((a,b)=>a.px-b.px);
+    leftHand=sorted[0]; rightHand=sorted[sorted.length-1];
+  }
+
+  // 손 스켈레톤
+  hands.forEach((lm,i)=>{
+    const isLeft = m[i].px < (rightHand? rightHand.px : W/2);
+    drawHand(lm, isLeft? "rgba(0,240,255,.9)":"rgba(255,47,185,.9)");
+  });
+
+  // 선택 판정
+  let rootIdx = leftHand ? hitRoot(leftHand.px, leftHand.py) : -1;
+  let qual = rightHand ? hitQuality(rightHand.px, rightHand.py) : null;
+
+  // 휠 렌더 (활성 섹터 표시)
+  drawWheel(L.x,L.y, ROOTS, rootIdx, "#00f0ff", null, false);
+  drawWheel(R.x,R.y, QUALITIES.map(q=>q.name), qual&&!qual.center?qual.idx:-1,
+            "#ff2fb9", "MAJ", !!(qual&&qual.center));
+
+  // 포인터
+  if(leftHand) drawPointer(leftHand.px, leftHand.py, "#00f0ff");
+  if(rightHand) drawPointer(rightHand.px, rightHand.py, "#ff2fb9");
+
+  // 코드 결정 & 연주
+  const haveRoot = rootIdx>=0 && leftHand;
+  const haveQual = qual!==null && rightHand;
+  if(haveRoot && haveQual){
+    const root = ROOTS[rootIdx];
+    const q = qual.center ? MAJ : QUALITIES[qual.idx];
+    const key = root + "|" + q.id;
+    if(key !== curKey){
+      curKey = key;
+      synth.setChord(chordFreqs(ROOT_SEMI[root], q.iv));
+    }
+    chordNameEl.textContent = chordLabel(root, q);
+
+    // 핀치 스트럼 (둘 중 하나라도 핀치 → 액센트)
+    const pinching = (leftHand&&leftHand.pinch) || (rightHand&&rightHand.pinch);
+    if(pinching && !prevPinch){ synth.strum(); }
+    prevPinch = !!pinching;
+  } else {
+    if(curKey!==""){ curKey=""; synth.silence(); }
+    chordNameEl.textContent = haveRoot ? ROOTS[rootIdx]+"…" : (haveQual? "?" : "—");
+    prevPinch=false;
+  }
+
+  requestAnimationFrame(loop);
+}
+
+/* ───────────────────────── 부트스트랩 ───────────────────────── */
+document.getElementById("start").addEventListener("click", async ()=>{
+  gate.classList.add("loading");
+  try{
+    synth.init(); synth.resume();
+    resize();
+    await setupCamera();
+    await setupModel();
+    statusEl.textContent = "";
+    gate.style.transition="opacity .5s ease";
+    gate.style.opacity="0";
+    setTimeout(()=>gate.remove(), 520);
+    loop();
+  }catch(err){
+    console.error(err);
+    gate.classList.remove("loading");
+    statusEl.classList.add("err");
+    statusEl.textContent = "오류: " + (err.message||err) + " — 카메라 권한과 인터넷 연결을 확인하세요.";
+  }
+});
+</script>
+</body>
+</html>
