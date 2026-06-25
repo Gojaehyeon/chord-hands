@@ -16,10 +16,10 @@
   #stage{position:fixed;inset:0}
   /* 미러된 웹캠 배경 */
   #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
-    transform:scaleX(-1);filter:saturate(.55) brightness(.42) contrast(1.05);
-    opacity:.9}
+    transform:scaleX(-1);filter:saturate(.95) brightness(1) contrast(1.02);
+    opacity:1}
   #vignette{position:absolute;inset:0;pointer-events:none;
-    background:radial-gradient(ellipse at center,transparent 35%,rgba(5,5,14,.82) 100%)}
+    background:radial-gradient(ellipse at center,transparent 60%,rgba(5,5,14,.38) 100%)}
   #fx{position:absolute;inset:0;width:100%;height:100%}
 
   /* HUD */
@@ -215,7 +215,7 @@ let L, R, wheelR, centerR;
 function layout(){
   wheelR = Math.min(W,H) * 0.20;
   centerR = wheelR * 0.46;
-  const cy = H*0.56;
+  const cy = H*0.66;
   L = { x: W*0.26, y: cy };
   R = { x: W*0.74, y: cy };
 }
@@ -244,55 +244,53 @@ function hitQuality(px,py){
 /* ───────────────────────── 그리기 ───────────────────────── */
 function polar(cx,cy,r,ang){ return [cx + r*Math.cos(ang), cy + r*Math.sin(ang)]; }
 
-function drawWheel(cx,cy,labels,activeIdx,accent,centerLabel,centerActive){
-  const n = labels.length;
-  const step = Math.PI*2/n;
+function drawWheel(cx,cy,labels,activeIdx,accent,opts){
+  opts = opts||{};
+  const n = labels.length, step = Math.PI*2/n, innerR = centerR;
+  const pulse = 0.22 + 0.1*Math.sin(performance.now()/120);
   for(let i=0;i<n;i++){
-    const a0 = -Math.PI/2 + i*step;
-    const a1 = a0 + step;
-    const mid = a0 + step/2;
+    const a0 = -Math.PI/2 + i*step, a1 = a0 + step, mid = a0 + step/2;
     const on = (i===activeIdx);
     ctx.beginPath();
-    ctx.moveTo(...polar(cx,cy,centerLabel!=null?centerR:wheelR*0.14,a0));
     ctx.arc(cx,cy,wheelR,a0,a1);
-    ctx.lineTo(...polar(cx,cy,centerLabel!=null?centerR:wheelR*0.14,a1));
-    ctx.arc(cx,cy,centerLabel!=null?centerR:wheelR*0.14,a1,a0,true);
+    ctx.arc(cx,cy,innerR,a1,a0,true);
     ctx.closePath();
-    ctx.fillStyle = on
-      ? `rgba(0,240,255,${0.30+0.12*Math.sin(performance.now()/120)})`
-      : "rgba(120,160,210,0.05)";
-    ctx.fill();
+    ctx.fillStyle = on ? accent : "#9fc4ea";
+    ctx.globalAlpha = on ? pulse : 0.05;
+    ctx.fill(); ctx.globalAlpha = 1;
     ctx.lineWidth = on?2.5:1;
     ctx.strokeStyle = on ? accent : "rgba(140,180,230,0.18)";
     if(on){ ctx.shadowColor=accent; ctx.shadowBlur=22; }
-    ctx.stroke();
-    ctx.shadowBlur=0;
+    ctx.stroke(); ctx.shadowBlur=0;
     // 라벨
-    const [lx,ly] = polar(cx,cy, (wheelR + (centerLabel!=null?centerR:wheelR*0.14))/2, mid);
+    const [lx,ly] = polar(cx,cy, (wheelR + innerR)/2, mid);
     ctx.fillStyle = on ? "#fff" : "rgba(200,220,245,0.7)";
-    ctx.font = `${on?700:500} ${Math.round(wheelR*0.14)}px -apple-system,sans-serif`;
+    ctx.font = `${on?700:500} ${Math.round(wheelR*0.13)}px -apple-system,sans-serif`;
     ctx.textAlign="center"; ctx.textBaseline="middle";
     if(on){ ctx.shadowColor=accent; ctx.shadowBlur=14; }
     ctx.fillText(labels[i], lx, ly);
     ctx.shadowBlur=0;
   }
-  // 가운데 원 (오른쪽 휠 전용)
-  if(centerLabel!=null){
+  // 가운데 원 (양쪽 휠 동일 크기)
+  if(opts.centerLabel!=null){
+    const col = opts.centerColor || accent, act = !!opts.centerActive;
     ctx.beginPath(); ctx.arc(cx,cy,centerR,0,Math.PI*2);
-    ctx.fillStyle = centerActive
-      ? `rgba(255,209,102,${0.32+0.12*Math.sin(performance.now()/120)})`
-      : "rgba(255,209,102,0.07)";
-    ctx.fill();
-    ctx.lineWidth = centerActive?3:1.5;
-    ctx.strokeStyle = centerActive ? "#ffd166" : "rgba(255,209,102,0.4)";
-    if(centerActive){ ctx.shadowColor="#ffd166"; ctx.shadowBlur=26; }
+    ctx.fillStyle = col;
+    ctx.globalAlpha = act ? (0.30+0.12*Math.sin(performance.now()/120)) : 0.08;
+    ctx.fill(); ctx.globalAlpha = 1;
+    ctx.lineWidth = act?3:1.5;
+    ctx.strokeStyle = col;
+    if(act){ ctx.shadowColor=col; ctx.shadowBlur=26; }
     ctx.stroke(); ctx.shadowBlur=0;
-    ctx.fillStyle = centerActive?"#fff":"rgba(255,225,170,0.85)";
-    ctx.font = `800 ${Math.round(centerR*0.42)}px -apple-system,sans-serif`;
-    ctx.fillText(centerLabel, cx, cy-centerR*0.08);
-    ctx.font = `600 ${Math.round(centerR*0.2)}px -apple-system,sans-serif`;
-    ctx.fillStyle = centerActive?"rgba(255,255,255,.7)":"rgba(255,225,170,0.45)";
-    ctx.fillText("기본", cx, cy+centerR*0.42);
+    ctx.fillStyle = act ? "#fff" : "rgba(255,255,255,0.82)";
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.font = `800 ${Math.round(centerR*0.44)}px -apple-system,sans-serif`;
+    ctx.fillText(opts.centerLabel, cx, cy-centerR*0.10);
+    if(opts.centerSub){
+      ctx.font = `600 ${Math.round(centerR*0.2)}px -apple-system,sans-serif`;
+      ctx.fillStyle = act ? "rgba(255,255,255,.7)" : "rgba(255,255,255,0.4)";
+      ctx.fillText(opts.centerSub, cx, cy+centerR*0.42);
+    }
   }
 }
 
@@ -388,9 +386,12 @@ function loop(){
   let qual = rightHand ? hitQuality(rightHand.px, rightHand.py) : null;
 
   // 휠 렌더 (활성 섹터 표시)
-  drawWheel(L.x,L.y, ROOTS, rootIdx, "#00f0ff", null, false);
-  drawWheel(R.x,R.y, QUALITIES.map(q=>q.name), qual&&!qual.center?qual.idx:-1,
-            "#ff2fb9", "MAJ", !!(qual&&qual.center));
+  drawWheel(L.x,L.y, ROOTS, rootIdx, "#00f0ff",
+    { centerLabel: rootIdx>=0 ? ROOTS[rootIdx] : "—", centerSub:"루트",
+      centerColor:"#00f0ff", centerActive: rootIdx>=0 });
+  drawWheel(R.x,R.y, QUALITIES.map(q=>q.name), qual&&!qual.center?qual.idx:-1, "#ff2fb9",
+    { centerLabel:"MAJ", centerSub:"기본",
+      centerColor:"#ffd166", centerActive: !!(qual&&qual.center) });
 
   // 포인터
   if(leftHand) drawPointer(leftHand.px, leftHand.py, "#00f0ff");
